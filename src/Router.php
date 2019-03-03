@@ -8,18 +8,7 @@ class Router
 	 * @var callable
 	 */
 	protected $defaultRouteNotFound;
-	protected $placeholders = [
-		'{alpha}' => '([a-zA-Z]+)',
-		'{alphanum}' => '([a-zA-Z0-9]+)',
-		'{any}' => '(.*)',
-		'{num}' => '([0-9]+)',
-		'{port}' => '([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])',
-		'{scheme}' => '(https?)',
-		'{segment}' => '([^/]+)',
-		'{subdomain}' => '([^.]+)',
-		//'{subdomain}' => '([A-Za-z0-9](?:[a-zA-Z0-9\-]{0,61}[A-Za-z0-9])?)',
-		'{title}' => '([a-zA-Z0-9_-]+)',
-	];
+	protected $placeholders = [];
 	/**
 	 * @var \Framework\Routing\Collection[]
 	 */
@@ -52,6 +41,11 @@ class Router
 	 * @var bool
 	 */
 	protected $autoMethods = false;
+
+	public function __construct()
+	{
+		$this->setDefaultPlaceholders();
+	}
 
 	/*public function getDefaultRouteNotFound() : Route
 	{
@@ -90,21 +84,62 @@ class Router
 	}
 
 	/**
-	 * @param array|string $placeholder
-	 * @param string|null  $pattern
+	 * @param string $placeholder
+	 * @param callable $function
 	 *
 	 * @return $this
 	 */
-	public function addPlaceholder($placeholder, string $pattern = null)
+	public function setPlaceholder(string $placeholder, callable $function)
 	{
-		if (\is_array($placeholder)) {
-			foreach ($placeholder as $key => $value) {
-				$this->placeholders['{' . $key . '}'] = $value;
-			}
-			return $this;
-		}
-		$this->placeholders['{' . $placeholder . '}'] = $pattern;
+		$this->placeholders['{' . $placeholder . '}'] = $function;
 		return $this;
+	}
+
+	protected function setDefaultPlaceholders()
+	{
+		$this->setPlaceholder('num', function ($value) {
+			return \ctype_digit($value);
+		});
+		$this->setPlaceholder('alpha', function ($value) {
+			return \ctype_alpha($value);
+		});
+		$this->setPlaceholder('alphanum', function ($value) {
+			return \ctype_alnum($value);
+		});
+		$this->setPlaceholder('scheme', function ($value) {
+			return $value === 'http' || $value === 'https';
+		});
+		$this->setPlaceholder('port', function ($value) {
+			return $value > 0 && $value < 65536;
+		});
+		$this->setPlaceholder('segment', function ($value) {
+			return \strpos($value, '/') === false;
+		});
+		$this->setPlaceholder('title', function ($value) {
+			return \preg_match('#[^a-zA-Z0-9_-]#', $value);
+		});
+		$this->setPlaceholder('subdomain', function ($value) {
+			if ($value[0] === '-') {
+				return false;
+			}
+			$length = \strlen($value);
+			if ($length > 63) {
+				return false;
+			}
+			if ($length > 1 && $value[$length - 1] === '-') {
+				return false;
+			}
+			$value = \strtr($value, ['-' => 1]);
+			return \ctype_alnum($value);
+		});
+	}
+
+	protected function validatePlaceholder(string $placeholder, $value) : bool
+	{
+		if (empty($this->placeholders[$placeholder])) {
+			throw new \InvalidArgumentException("Function not set for placeholder: {$placeholder}");
+		}
+		return $this->placeholders[$placeholder]($value);
 	}
 
 	public function getPlaceholders() : array
@@ -123,23 +158,26 @@ class Router
 
 	public function fillPlaceholders(string $string, ...$params) : string
 	{
-		$string = $this->replacePlaceholders($string);
-		\preg_match_all('#\(([^)]+)\)#', $string, $matches);
+		\preg_match_all('#\{([^}]+)\}#', $string, $matches);
 		if (empty($matches[0])) {
 			return $string;
 		}
-		foreach ($matches[0] as $index => $pattern) {
+		foreach ($matches[0] as $index => $placeholer) {
 			if ( ! isset($params[$index])) {
-				throw new \InvalidArgumentException("Parameter is empty. Index: {$index}");
+				throw new \InvalidArgumentException(
+					"Empty index {$index} for placeholder {$placeholer}"
+				);
 			}
-			if ( ! \preg_match('#' . $pattern . '#', $params[$index])) {
-				throw new \InvalidArgumentException("Parameter is invalid. Index: {$index}");
+			if ( ! $this->validatePlaceholder($placeholer, $params[$index])) {
+				throw new \InvalidArgumentException(
+					"Invalid index {$index} for placeholder {$placeholer}"
+				);
 			}
 			$string = \substr_replace(
 				$string,
 				$params[$index],
-				\strpos($string, $pattern),
-				\strlen($pattern)
+				\strpos($string, $placeholer),
+				\strlen($placeholer)
 			);
 		}
 		return $string;
@@ -314,7 +352,8 @@ class Router
 	protected function matchCollection(string $origin) : ?Collection
 	{
 		foreach ($this->getCollections() as $collection) {
-			$pattern = $this->replacePlaceholders($collection->origin);
+			//$pattern = $this->replacePlaceholders($collection->origin);
+			$pattern = $collection->origin;
 			$matched = \preg_match(
 				'#^' . $pattern . '$#',
 				$origin,
