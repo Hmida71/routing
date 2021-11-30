@@ -194,6 +194,27 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
+        $route = $this->makeRoute($path, $action, $name);
+        foreach ($httpMethods as $method) {
+            $this->addRoute($method, $route);
+        }
+        return $route;
+    }
+
+    /**
+     * Make a Route.
+     *
+     * @param string $path
+     * @param array<int,string>|Closure|string $action
+     * @param string|null $name
+     *
+     * @return Route
+     */
+    protected function makeRoute(
+        string $path,
+        array | Closure | string $action,
+        string $name = null
+    ) : Route {
         if (\is_array($action)) {
             $action = $this->makeRouteActionFromArray($action);
         }
@@ -201,10 +222,26 @@ class RouteCollection implements \Countable, \JsonSerializable
         if ($name !== null) {
             $route->setName($this->getRouteName($name));
         }
-        foreach ($httpMethods as $method) {
-            $this->addRoute($method, $route);
-        }
         return $route;
+    }
+
+    /**
+     * Make a Route and add to the collection.
+     *
+     * @param string $method HTTP method. Must be uppercase
+     * @param string $path
+     * @param array<int,string>|Closure|string $action
+     * @param string|null $name
+     *
+     * @return Route
+     */
+    protected function makeRouteAdd(
+        string $method,
+        string $path,
+        array | Closure | string $action,
+        string $name = null
+    ) : Route {
+        return $this->routes[$method][] = $this->makeRoute($path, $action, $name);
     }
 
     /**
@@ -247,7 +284,7 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
-        return $this->add(['GET'], $path, $action, $name);
+        return $this->makeRouteAdd('GET', $path, $action, $name);
     }
 
     /**
@@ -266,7 +303,7 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
-        return $this->add(['POST'], $path, $action, $name);
+        return $this->makeRouteAdd('POST', $path, $action, $name);
     }
 
     /**
@@ -285,7 +322,7 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
-        return $this->add(['PUT'], $path, $action, $name);
+        return $this->makeRouteAdd('PUT', $path, $action, $name);
     }
 
     /**
@@ -304,7 +341,7 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
-        return $this->add(['PATCH'], $path, $action, $name);
+        return $this->makeRouteAdd('PATCH', $path, $action, $name);
     }
 
     /**
@@ -323,7 +360,7 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
-        return $this->add(['DELETE'], $path, $action, $name);
+        return $this->makeRouteAdd('DELETE', $path, $action, $name);
     }
 
     /**
@@ -342,7 +379,7 @@ class RouteCollection implements \Countable, \JsonSerializable
         array | Closure | string $action,
         string $name = null
     ) : Route {
-        return $this->add(['OPTIONS'], $path, $action, $name);
+        return $this->makeRouteAdd('OPTIONS', $path, $action, $name);
     }
 
     /**
@@ -357,9 +394,13 @@ class RouteCollection implements \Countable, \JsonSerializable
     public function redirect(string $path, string $location, int $code = null) : Route
     {
         $response = $this->router->getResponse();
-        return $this->add(['GET'], $path, static function () use ($response, $location, $code) : void {
-            $response->redirect($location, [], $code);
-        });
+        return $this->makeRouteAdd(
+            'GET',
+            $path,
+            static function () use ($response, $location, $code) : void {
+                $response->redirect($location, [], $code);
+            }
+        );
     }
 
     /**
